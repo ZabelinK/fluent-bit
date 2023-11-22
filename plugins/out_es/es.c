@@ -887,6 +887,15 @@ static void cb_es_flush(struct flb_event_chunk *event_chunk,
     /* Map debug callbacks */
     flb_http_client_debug(c, ctx->ins->callback);
 
+    if (pack_size < 3500) {
+        flb_plg_info(ctx->ins, ">>>>>>>>>>>>>>>>>>>>>> OUT REQUEST size: %d request:\n%.*s\n", (int) pack_size, (int) pack_size, pack);
+    } else {
+        flb_plg_info(ctx->ins, ">>>>>>>>>>>>>>>>>>>>>> OUT REQUEST size: %d request:\n", (int) pack_size);
+        fwrite(pack, 1, (int) pack_size, stderr);
+        fwrite(" ", 1, 1, stderr);
+        fflush(stderr);
+    }
+
     ret = flb_http_do(c, &b_sent);
     if (ret != 0) {
         flb_plg_warn(ctx->ins, "http_do=%i URI=%s", ret, ctx->uri);
@@ -895,15 +904,24 @@ static void cb_es_flush(struct flb_event_chunk *event_chunk,
     else {
         /* The request was issued successfully, validate the 'error' field */
         flb_plg_debug(ctx->ins, "HTTP Status=%i URI=%s", c->resp.status, ctx->uri);
+        if (c->resp.payload_size > 0) {
+            if (c->resp.payload_size < 3500) {
+                flb_plg_info(ctx->ins, "<<<<<<<<<<<<<<<<<<<<<< IN RESPONSE size=%d status=%i URI=%s, response:\n%s\n",
+                              c->resp.payload_size, c->resp.status, ctx->uri, c->resp.payload);
+            } else {
+                flb_plg_info(ctx->ins, "<<<<<<<<<<<<<<<<<<<<<< IN RESPONSE size=%d status=%i URI=%s, response:",
+                              c->resp.payload_size, c->resp.status, ctx->uri);
+                fwrite(c->resp.payload, 1, (int) c->resp.payload_size, stderr);
+                fwrite(" ", 1, 1, stderr);
+                fflush(stderr);
+            }
+        }
+        else {
+            flb_plg_info(ctx->ins, "<<<<<<<<<<<<<<<<<<<<<< IN RESPONSE size=%d status=%i URI=%s",
+                            c->resp.payload_size, c->resp.status, ctx->uri);
+        }
         if (c->resp.status != 200 && c->resp.status != 201) {
-            if (c->resp.payload_size > 0) {
-                flb_plg_error(ctx->ins, "HTTP status=%i URI=%s, response:\n%s\n",
-                              c->resp.status, ctx->uri, c->resp.payload);
-            }
-            else {
-                flb_plg_error(ctx->ins, "HTTP status=%i URI=%s",
-                              c->resp.status, ctx->uri);
-            }
+            flb_plg_error(ctx->ins, "WE DO RETRY 1");
             goto retry;
         }
 
@@ -915,28 +933,6 @@ static void cb_es_flush(struct flb_event_chunk *event_chunk,
             ret = elasticsearch_error_check(ctx, c);
             if (ret == FLB_TRUE) {
                 /* we got an error */
-                if (ctx->trace_error) {
-                    /*
-                     * If trace_error is set, trace the actual
-                     * response from Elasticsearch explaining the problem.
-                     * Trace_Output can be used to see the request. 
-                     */
-                    if (pack_size < 4000) {
-                        flb_plg_debug(ctx->ins, "error caused by: Input\n%.*s\n",
-                                      (int) pack_size, pack);
-                    }
-                    if (c->resp.payload_size < 4000) {
-                        flb_plg_error(ctx->ins, "error: Output\n%s",
-                                      c->resp.payload);
-                    } else {
-                        /*
-                        * We must use fwrite since the flb_log functions
-                        * will truncate data at 4KB
-                        */
-                        fwrite(c->resp.payload, 1, c->resp.payload_size, stderr);
-                        fflush(stderr);
-                    }
-                }
                 goto retry;
             }
             else {

@@ -197,6 +197,17 @@ static int load_system_certificates(struct tls_context *ctx)
     return 0;
 }
 
+// Callback function to log session keys
+void ssl_keylog_callback(const SSL *ssl, const char *line)
+{
+    // Output the session key to a file or process it as needed
+    FILE *keylog = fopen("/data/fluent_bit_ssl_keys.log", "a");
+    if (keylog != NULL) {
+        fprintf(keylog, "%s\n", line);
+        fclose(keylog);
+    }
+}
+
 static void *tls_context_create(int verify,
                                 int debug,
                                 int mode,
@@ -246,6 +257,8 @@ static void *tls_context_create(int verify,
         flb_error("[openssl] could not create context");
         return NULL;
     }
+
+    SSL_CTX_set_keylog_callback(ssl_ctx, ssl_keylog_callback);
 
     ctx = flb_calloc(1, sizeof(struct tls_context));
     if (!ctx) {
